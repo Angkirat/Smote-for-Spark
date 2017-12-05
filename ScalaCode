@@ -11,11 +11,11 @@ import org.apache.spark.ml.feature.BucketedRandomProjectionLSH
 import org.apache.spark.ml.linalg.Vectors
 
 // user Input value parameter
-// val dataFile = "/data/sam.csv"
-val dataFile = "/data/train_final.csv"
+val dataFile = "/data/sam.csv"
+// val dataFile = "/data/train_final.csv"
 // val k = 2
-// val TFN = "Y"
-val TFN = "Target"
+val TFN = "Y"
+// val TFN = "Target"
 val minority = "1"
 val percentageOver = 200
 
@@ -31,12 +31,12 @@ val vectorized = assembled1.select("feature",TFN).withColumn("label",col(TFN)).d
 val shuffledDF = vectorized.orderBy(rand())
 val dataFinal = shuffledDF.withColumn("index", row_number().over(Window.partitionBy("label").orderBy("label")))
 
-// val minorityCount = dataFinal.count
-// val reqrows = ((minorityCount*percentageOver)/100).toInt
+val minorityCount = dataFinal.count
+val reqrows = ((minorityCount*percentageOver)/100).toInt
 // val distRows = reqrows / (k*2)
 // val considData = dataFinal.limit(distRows)
 
-val brp = new BucketedRandomProjectionLSH().setBucketLength(100).setNumHashTables(200).setInputCol("feature").setOutputCol("values")
+val brp = new BucketedRandomProjectionLSH().setBucketLength(10).setNumHashTables(30).setInputCol("feature").setOutputCol("values")
 val model = brp.fit(dataFinal)
 val transformedA = model.transform(dataFinal).cache
 val transformedB = model.transform(dataFinal).cache
@@ -49,13 +49,15 @@ val b3 = b2.selectExpr("datasetA.index as id1",
   "datasetA.feature as k1",
   "datasetB.index as id2",
   "datasetB.feature as k2",
-  "distCol").filter("distCol>0.0").orderBy("id1", "distCol")
+  "distCol").filter("distCol>0.0").orderBy("id1", "distCol").dropDuplicates().limit(reqrows)
 
   // .filter("distCol>0.0").orderBy("id1", "distCol")
 
 def fn(key: org.apache.spark.ml.linalg.Vector, key2: org.apache.spark.ml.linalg.Vector)={
+  val resArray = Array(key, key2)
   val res = key.toArray.zip(key2.toArray.zip(key.toArray).map(x => x._1 - x._2).map(_*0.2)).map(x => x._1 + x._2)
-  org.apache.spark.ml.linalg.Vectors.dense(res)}
+  resArray :+ org.apache.spark.ml.linalg.Vectors.dense(res)}
 
 val md = udf(fn _)
-b4 = b3.withColumn("ndtata", md($"k1", $"k2")).show(false)
+val b4 = b3.withColumn("ndtata", md($"k1", $"k2")).select("ndtata")
+val b5 = b4.withColumn("AllFeatures", explode($"ndtata")).select("AllFeatures").dropDuplicates.withColumn("label", lit(minority))
