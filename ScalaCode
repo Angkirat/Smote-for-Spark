@@ -1,0 +1,61 @@
+// Import the neccessary dependencies
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.MinHashLSH
+import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.sql.functions.rand
+import org.apache.spark.sql.functions._
+
+// For KNN Imports
+import org.apache.spark.ml.feature.BucketedRandomProjectionLSH
+import org.apache.spark.ml.linalg.Vectors
+
+// user Input value parameter
+// val dataFile = "/data/sam.csv"
+val dataFile = "/data/train_final.csv"
+// val k = 2
+// val TFN = "Y"
+val TFN = "Target"
+val minority = "1"
+val percentageOver = 200
+
+// Import data and vectorize it
+val dataInput = spark.read.format("csv").option("header", "true").option("inferSchema", "true").load(dataFile).na.drop()
+val min_dataIInput = dataInput.where(TFN + " == " + minority)
+val columnNames = min_dataIInput.columns.filter(_ != TFN)
+val assembler1 = new VectorAssembler().setInputCols(columnNames).setOutputCol("feature")
+val assembled1 = assembler1.transform(min_dataIInput)
+val vectorized = assembled1.select("feature",TFN).withColumn("label",col(TFN)).drop(TFN)
+
+// Shuffle the vectorized data and add serial number to the shuffled data
+val shuffledDF = vectorized.orderBy(rand())
+val dataFinal = shuffledDF.withColumn("index", row_number().over(Window.partitionBy("label").orderBy("label")))
+
+// val minorityCount = dataFinal.count
+// val reqrows = ((minorityCount*percentageOver)/100).toInt
+// val distRows = reqrows / (k*2)
+// val considData = dataFinal.limit(distRows)
+
+val brp = new BucketedRandomProjectionLSH().setBucketLength(100).setNumHashTables(200).setInputCol("feature").setOutputCol("values")
+val model = brp.fit(dataFinal)
+val transformedA = model.transform(dataFinal).cache
+val transformedB = model.transform(dataFinal).cache
+transformedA.count
+transformedB.count
+
+val b2 = model.approxSimilarityJoin(transformedA, transformedB, 2000000000.0)
+
+val b3 = b2.selectExpr("datasetA.index as id1",
+  "datasetA.feature as k1",
+  "datasetB.index as id2",
+  "datasetB.feature as k2",
+  "distCol").filter("distCol>0.0").orderBy("id1", "distCol")
+
+  // .filter("distCol>0.0").orderBy("id1", "distCol")
+
+def fn(key: org.apache.spark.ml.linalg.Vector, key2: org.apache.spark.ml.linalg.Vector)={
+  val res = key.toArray.zip(key2.toArray.zip(key.toArray).map(x => x._1 - x._2).map(_*0.2)).map(x => x._1 + x._2)
+  org.apache.spark.ml.linalg.Vectors.dense(res)}
+
+val md = udf(fn _)
+b4 = b3.withColumn("ndtata", md($"k1", $"k2")).show(false)
