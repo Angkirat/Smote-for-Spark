@@ -16,7 +16,7 @@ val dataFile = "/data/sam.csv"
 // val k = 2
 val TFN = "Y"
 // val TFN = "Target"
-val minority = "1"
+val minority = 1
 val percentageOver = 200
 
 // Import data and vectorize it
@@ -38,11 +38,8 @@ val reqrows = ((minorityCount*percentageOver)/100).toInt
 
 val brp = new BucketedRandomProjectionLSH().setBucketLength(10).setNumHashTables(30).setInputCol("feature").setOutputCol("values")
 val model = brp.fit(dataFinal)
-val transformedA = model.transform(dataFinal).cache
-val transformedB = model.transform(dataFinal).cache
-transformedA.count
-transformedB.count
-
+val transformedA = model.transform(dataFinal)
+val transformedB = model.transform(dataFinal)
 val b2 = model.approxSimilarityJoin(transformedA, transformedB, 2000000000.0)
 
 val b3 = b2.selectExpr("datasetA.index as id1",
